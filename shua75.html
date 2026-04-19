@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>75元餐補共享圖鑑 V2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 pb-20">
+    <nav class="bg-indigo-600 text-white p-4 sticky top-0 z-50 shadow-md flex justify-between items-center">
+        <h1 class="text-xl font-bold">🍱 刷75</h1>
+        <button onclick="fetchMeals()" class="text-sm bg-indigo-500 px-3 py-1 rounded">更新</button>
+    </nav>
+
+    <div id="loading" class="text-center p-10 text-slate-400">正在同步雲端資料...</div>
+    <div id="meal-list" class="max-w-md mx-auto p-4 space-y-4"></div>
+
+    <button onclick="toggleModal()" class="fixed bottom-6 right-6 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg text-3xl z-50 flex items-center justify-center pb-1">+</button>
+
+    <div id="modal" class="fixed inset-0 bg-black/50 hidden z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div class="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold">新增餐補組合</h2>
+                <button onclick="toggleModal()" class="text-slate-400 p-2">✕</button>
+            </div>
+            <div class="space-y-4">
+                <input type="text" id="meal-name" class="w-full border border-slate-200 rounded-lg p-3 outline-none focus:ring-2 focus:ring-indigo-500" placeholder="例：全家飯糰+中拿鐵">
+                <div class="flex gap-4">
+                    <input type="number" id="meal-price" value="75" class="flex-1 border border-slate-200 rounded-lg p-3 outline-none focus:ring-2 focus:ring-indigo-500">
+                    <input list="tag-options" id="meal-tag" class="flex-1 border border-slate-200 rounded-lg p-3 outline-none focus:ring-2 focus:ring-indigo-500" placeholder="地點">
+                    <datalist id="tag-options">
+                        <option value="OK"><option value="全家">
+                    </datalist>
+                </div>
+                <div onclick="document.getElementById('file-input').click()" class="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center cursor-pointer hover:bg-slate-50">
+                    <input type="file" id="file-input" accept="image/*" capture="environment" class="hidden" onchange="previewAndCompress(event)">
+                    <div id="preview-container" class="hidden"><img id="photo-preview" class="mx-auto rounded-lg shadow-sm max-h-48 object-cover"></div>
+                    <div id="upload-placeholder"><span class="text-3xl">📷</span><p class="text-slate-400 text-xs mt-1">拍照</p></div>
+                </div>
+                <button id="save-btn" onclick="saveMeal()" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95">儲存到雲端</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbxA7_ehb6ZLEry5KvERiyeoUo_Yox4jRQTBRpdhmsAMIZNK9zwbMV2GRjmGkCEJxRO4cA/exec"; 
+        let currentImageData = null;
+
+        window.onload = fetchMeals;
+
+        function fetchMeals() {
+            document.getElementById('loading').classList.remove('hidden');
+            fetch(GAS_URL).then(res => res.json()).then(data => {
+                document.getElementById('loading').classList.add('hidden');
+                renderMeals(data);
+            });
+        }
+
+        // 圖片預覽與「壓縮」功能 (解決當機關鍵)
+        function previewAndCompress(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const MAX_WIDTH = 800; // 壓縮後的寬度
+                    const scaleSize = MAX_WIDTH / img.width;
+                    canvas.width = MAX_WIDTH;
+                    canvas.height = img.height * scaleSize;
+
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    // 轉成 quality 0.7 的 base64，檔案大小會縮小 20 倍以上
+                    currentImageData = canvas.toDataURL('image/jpeg', 0.7);
+                    document.getElementById('photo-preview').src = currentImageData;
+                    document.getElementById('preview-container').classList.remove('hidden');
+                    document.getElementById('upload-placeholder').classList.add('hidden');
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function saveMeal() {
+            const name = document.getElementById('meal-name').value;
+            const price = document.getElementById('meal-price').value;
+            const tag = document.getElementById('meal-tag').value;
+            if (!name || !currentImageData) return alert("請填寫名稱並拍照喔！");
+
+            const btn = document.getElementById('save-btn');
+            btn.innerText = "上傳中...";
+            btn.disabled = true;
+
+            const payload = { action: "ADD", name, price, tag, image: currentImageData };
+            fetch(GAS_URL, { method: "POST", body: JSON.stringify(payload), mode: 'no-cors' })
+            .then(() => {
+                alert("上傳成功！");
+                location.reload();
+            });
+        }
+
+        function deleteMeal(rowId) {
+            if (!confirm("確定要刪除這筆紀錄嗎？")) return;
+            
+            fetch(GAS_URL, {
+                method: "POST",
+                body: JSON.stringify({ action: "DELETE", row: rowId }),
+                mode: 'no-cors'
+            }).then(() => {
+                alert("已刪除");
+                location.reload();
+            });
+        }
+
+        function renderMeals(meals) {
+            const list = document.getElementById('meal-list');
+            list.innerHTML = '';
+            meals.reverse().forEach(m => {
+                list.innerHTML += `
+                    <div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 relative">
+                        <button onclick="deleteMeal(${m.rowId})" class="absolute top-2 right-2 bg-red-500/80 text-white w-8 h-8 rounded-full z-10 text-sm">✕</button>
+                        ${m.image ? `<img src="${m.image}" class="w-full h-48 object-cover">` : ''}
+                        <div class="p-4">
+                            <div class="flex justify-between items-center">
+                                <h3 class="font-bold text-slate-800">${m.name}</h3>
+                                <span class="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">${m.tag}</span>
+                            </div>
+                            <p class="text-emerald-600 font-bold mt-2 text-lg">$${m.price}</p>
+                        </div>
+                    </div>`;
+            });
+        }
+        
+        function toggleModal() { document.getElementById('modal').classList.toggle('hidden'); }
+    </script>
+</body>
+</html>
